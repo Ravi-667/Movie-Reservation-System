@@ -1,0 +1,149 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String?
+  role      UserRole @default(CUSTOMER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reservations Reservation[]
+}
+
+model Movie {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  durationMin Int
+  releaseDate DateTime
+  genre       String?
+  posterUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  showtimes Showtime[]
+
+  @@index([title])
+  @@index([genre])
+  @@index([releaseDate])
+}
+
+model Theater {
+  id        Int      @id @default(autoincrement())
+  name      String
+  location  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screens Screen[]
+}
+
+model Screen {
+  id        Int      @id @default(autoincrement())
+  number    Int
+  theaterId Int
+  theater   Theater  @relation(fields: [theaterId], references: [id])
+  type      String? // IMAX, 3D, etc.
+
+  seats     Seat[]
+  showtimes Showtime[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Seat {
+  id       Int     @id @default(autoincrement())
+  screenId Int
+  screen   Screen  @relation(fields: [screenId], references: [id])
+  row      String
+  number   Int
+  type     String? // Regular, Premium, VIP
+
+  seatReservations SeatReservation[]
+
+  @@unique([screenId, row, number])
+}
+
+model Showtime {
+  id        Int      @id @default(autoincrement())
+  movieId   Int
+  movie     Movie    @relation(fields: [movieId], references: [id])
+  screenId  Int
+  screen    Screen   @relation(fields: [screenId], references: [id])
+  startTime DateTime
+  endTime   DateTime // Calculated based on movie duration + cleaning time?
+  price     Float
+
+  reservations     Reservation[]
+  seatReservations SeatReservation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum ReservationStatus {
+  PENDING // Payment started
+  CONFIRMED // Payment successful
+  CANCELLED // Payment failed or user cancelled
+  EXPIRED // Time limit exceeded
+}
+
+model Reservation {
+  id         Int               @id @default(autoincrement())
+  userId     Int
+  user       User              @relation(fields: [userId], references: [id])
+  showtimeId Int
+  showtime   Showtime          @relation(fields: [showtimeId], references: [id])
+  status     ReservationStatus @default(PENDING)
+  totalPrice Float
+  createdAt  DateTime          @default(now())
+  expiresAt  DateTime // If pending, expires after X minutes
+
+  seats   SeatReservation[]
+  payment Payment?
+}
+
+// Join table for Reservation <-> Seat
+// A seat in a showtime can be reserved.
+// Wait, a Seat is physical. SeatReservation links a physical seat to a Specific Showtime and Reservation.
+model SeatReservation {
+  id            Int         @id @default(autoincrement())
+  reservationId Int
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  seatId        Int
+  seat          Seat        @relation(fields: [seatId], references: [id])
+  showtimeId    Int
+  showtime      Showtime    @relation(fields: [showtimeId], references: [id])
+
+  // To prevent double booking specific seat in a showtime
+  @@unique([showtimeId, seatId])
+}
+
+model Payment {
+  id            Int      @id @default(autoincrement())
+  reservationId Int      @unique
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  amount        Float
+  provider      String // Stripe
+  transactionId String?
+  status        String // Success, Failed
+  createdAt     DateTime @default(now())
+}
